@@ -60,6 +60,7 @@ public class ChatActivityFragment extends Fragment {
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         registerServiceStateChangeReceiver();
+        registerBroadcastReceiver();
     }
 
     @Override
@@ -143,4 +144,27 @@ public class ChatActivityFragment extends Fragment {
         intentFilter.addAction(Constants.BROADCAST_USER_LEFT);
         getActivity().registerReceiver(mServiceStateChangeReceiver, intentFilter);
     }
+
+    private final BroadcastReceiver broadcastTimeoutReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            Bundle data = intent.getExtras();
+            Log.d(TAG, "received broadcast message of timeout: " + action);
+
+            if (Constants.BROADCAST_SESSION_TIMEOUT.equals(action)) {
+                String timeoutMessage = data.getString(Constants.TIMEOUT_MESSAGE);
+                ChatMessage chatMessage = new ChatMessage("Timeout: ", timeoutMessage, true);
+                displayMessage(chatMessage);
+            }
+        }
+    };
+
+    private void registerBroadcastReceiver() {
+        Log.d(TAG, "registering broadcast timeout receiver...");
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(Constants.BROADCAST_SESSION_TIMEOUT);
+        getActivity().registerReceiver(broadcastTimeoutReceiver, intentFilter);
+    }
+
 }
