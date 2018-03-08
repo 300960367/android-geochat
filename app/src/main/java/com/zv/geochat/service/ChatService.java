@@ -6,12 +6,14 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Binder;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.util.Log;
 
 import com.zv.geochat.Constants;
+import com.zv.geochat.R;
 import com.zv.geochat.model.ChatMessage;
 import com.zv.geochat.notification.NotificationDecorator;
 import com.zv.geochat.provider.ChatMessageStore;
@@ -32,6 +34,9 @@ public class ChatService extends Service {
     private ChatMessageStore chatMessageStore;
 
     private String myName;
+    private long time = 0;
+    private long currentSessionTime = 0;
+    CountDownTimer timer;
 
     public ChatService() {
     }
@@ -96,16 +101,19 @@ public class ChatService extends Service {
             notificationDecorator.displaySimpleNotification("Joining Chat...", "Connecting as User: " + myName);
             sendBroadcastConnected();
             sendBroadcastUserJoined(myName, 1);
+            setTimer();
         } else if (command == CMD_LEAVE_CHAT) {
             notificationDecorator.displaySimpleNotification("Leaving Chat...", "Disconnecting");
             sendBroadcastUserLeft(myName, 0);
             sendBroadcastNotConnected();
+            if (timer != null) timer.cancel();
             stopSelf();
         } else if (command == CMD_SEND_MESSAGE) {
             String messageText = (String) data.get(KEY_MESSAGE_TEXT);
             notificationDecorator.displayExpandableNotification("Sending message...", messageText);
             chatMessageStore.insert(new ChatMessage(myName, messageText));
             sendBroadcastNewMessage(myName, messageText);
+            setTimer();
         } else if (command == CMD_RECEIVE_MESSAGE) {
             String testUser = "Test User";
             String testMessage = "Simulated Message";
@@ -122,6 +130,14 @@ public class ChatService extends Service {
         myName = prefs.getString(Constants.PREF_KEY_USER_NAME, "Default Name");
     }
 
+    private void loadTimerFromPreferences() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        String defaultTime = getResources().getString(R.string.pref_default_timeout);
+        String PREF_KEY_TIMEOUT = getResources().getString(R.string.pref_key_timeout);
+        String timepref = prefs.getString( PREF_KEY_TIMEOUT, defaultTime);
+        time = Long.valueOf( timepref );
+        Log.d(TAG, "loaded timeout preference: " + time);
+    }
 
     // broadcasts
     private void sendBroadcastNotConnected() {
@@ -147,6 +163,18 @@ public class ChatService extends Service {
         Bundle data = new Bundle();
         data.putInt(Constants.CHAT_USER_COUNT, userCount);
         data.putString(Constants.CHAT_USER_NAME, userName);
+        intent.putExtras(data);
+
+        sendBroadcast(intent);
+    }
+
+    private void sendBroadcastTimeout(String timeoutMessage) {
+        Log.d(TAG, "->(+)<- sending broadcast: BROADCAST_SESSION_TIMEOUT");
+        Intent intent = new Intent();
+        intent.setAction(Constants.BROADCAST_SESSION_TIMEOUT);
+
+        Bundle data = new Bundle();
+        data.putString(Constants.TIMEOUT_MESSAGE, timeoutMessage);
         intent.putExtras(data);
 
         sendBroadcast(intent);
@@ -183,5 +211,40 @@ public class ChatService extends Service {
         Intent intent = new Intent();
         intent.setAction(Constants.BROADCAST_USER_TYPING);
         sendBroadcast(intent);
+    }
+
+    private void setTimer() {
+        long MILISECONDS_IN_A_SECOND = 1000;
+        long MILISECONDS_IN_A_MINUTE = 60 * MILISECONDS_IN_A_SECOND;
+        long timeout = time * MILISECONDS_IN_A_MINUTE;
+
+        currentSessionTime = 0;
+        Log.d(TAG, "setTimer() time=" + time + " timeout=" + timeout);
+
+        final String timeoutMessage = "Session closed after reaching the limit: "
+                + time + " min.";
+
+        if (timer != null) timer.cancel();
+        timer = new CountDownTimer(timeout, MILISECONDS_IN_A_SECOND) {
+
+            public void onTick(long millisUntilFinished) {
+                currentSessionTime++;
+                Log.d(TAG, "currentSessionTime: " + currentSessionTime + "s");
+            }
+
+            public void onFinish() {
+                Log.d(TAG, "timer finished");
+                sendBroadcastTimeout(timeoutMessage);
+                leaveChat();
+            }
+        };
+        timer = timer.start();
+    }
+    private void leaveChat(){
+        Bundle data = new Bundle();
+        data.putInt(ChatService.CMD, ChatService.CMD_LEAVE_CHAT);
+        Intent intent = new Intent(this, ChatService.class);
+        intent.putExtras(data);
+        startService(intent);
     }
 }

@@ -67,6 +67,7 @@ public class ChatActivityFragment extends Fragment {
     public void onDestroy() {
         super.onDestroy();
         getActivity().unregisterReceiver(mServiceStateChangeReceiver);
+        getActivity().unregisterReceiver(broadcastTimeoutReceiver);
     }
 
     private void sendMessage(String messageText){
